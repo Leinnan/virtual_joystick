@@ -112,22 +112,25 @@ impl VirtualJoystickBehavior for JoystickVerticalOnly {
 
 impl VirtualJoystickBehavior for JoystickInvisible {
     fn update(&self, world: &mut World, entity: Entity) {
-        let joystick_state = world.get::<VirtualJoystickState>(entity).cloned();
-        let Some(joystick_state) = joystick_state else {
+        let Some(joystick_state) = world.get::<VirtualJoystickState>(entity).cloned() else {
             return;
         };
-        let Some(mut joystick_visibility) = world.get_mut::<Visibility>(entity) else {
-            return;
+        let children: Vec<Entity> = {
+            let Some(c) = world.get::<Children>(entity) else {
+                return;
+            };
+            let t = c.iter().cloned();
+            t.collect()
         };
-        if joystick_state.just_released
-            || *joystick_visibility != Visibility::Hidden && joystick_state.touch_state.is_none()
-        {
-            *joystick_visibility = Visibility::Hidden;
-        }
-        if let Some(touch_state) = &joystick_state.touch_state {
-            if touch_state.just_pressed {
-                *joystick_visibility = Visibility::Inherited;
-            }
+        for e in children {
+            let Some(mut joystick_visibility) = world.get_mut::<Visibility>(e) else {
+                return;
+            };
+            *joystick_visibility = if joystick_state.touch_state.is_some() {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
         }
     }
 }
