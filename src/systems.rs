@@ -9,10 +9,10 @@ use bevy::{
         world::World,
     },
     hierarchy::Children,
-    input::{mouse::MouseButton, touch::Touches, ButtonInput},
+    input::touch::Touches,
     math::{Rect, Vec2, Vec3Swizzles},
     transform::components::GlobalTransform,
-    ui::{ComputedNode, Node, PositionType, Val},
+    ui::{ComputedNode, Interaction, Node, PositionType, Val},
     window::{PrimaryWindow, Window},
 };
 
@@ -41,74 +41,65 @@ pub fn update_missing_state<S: VirtualJoystickID>(world: &mut World) {
 }
 
 pub fn update_input(
-    mut joysticks: Query<(&ComputedNode, &GlobalTransform, &mut VirtualJoystickState)>,
-    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    mut joysticks: Query<(
+        &ComputedNode,
+        &GlobalTransform,
+        &Interaction,
+        &mut VirtualJoystickState,
+    )>,
     touches: Res<Touches>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
 ) {
-    for (joystick_node, joystick_global_transform, mut joystick_state) in &mut joysticks {
-        joystick_state.just_released = false;
-        if let Some(touch_state) = &mut joystick_state.touch_state {
-            touch_state.just_pressed = false;
+    for (joystick_node, joystick_global_transform, interaction, mut joystick_state) in
+        &mut joysticks
+    {
+        if joystick_state.touch_state.is_none() && interaction.ne(&Interaction::Pressed) {
+            continue;
         }
-        if joystick_state.touch_state.is_none() {
-            let rect = Rect::from_center_size(
-                joystick_global_transform.translation().xy(),
-                joystick_node.size(),
-            );
-            for touch in touches.iter() {
-                if rect.contains(touch.position()) {
-                    joystick_state.touch_state = Some(TouchState {
-                        id: touch.id(),
-                        is_mouse: false,
-                        start: touch.position(),
-                        current: touch.position(),
-                        just_pressed: true,
-                    });
-                    break;
+        let rect = Rect::from_center_size(
+            joystick_global_transform.translation().xy(),
+            joystick_node.size(),
+        );
+        let Some(touch_state) = &mut joystick_state.touch_state else {
+            let input = touches
+                .iter()
+                .find(|touch| rect.contains(touch.start_position()))
+                .map(|touch| (touch.id(), touch.position()));
+            let is_mouse = input.is_none();
+            let (id, start) = input.unwrap_or_else(|| {
+                (
+                    0,
+                    q_windows
+                        .single()
+                        .cursor_position()
+                        .unwrap_or(joystick_global_transform.translation().xy()),
+                )
+            });
+            joystick_state.touch_state = Some(TouchState {
+                current: start,
+                start,
+                id,
+                is_mouse,
+                just_pressed: true,
+            });
+            continue;
+        };
+        touch_state.just_pressed = false;
+        if interaction.ne(&Interaction::Pressed) {
+            joystick_state.touch_state = None;
+            joystick_state.just_released = true;
+            continue;
+        }
+        if touch_state.is_mouse {
+            if let Some(new_current) = q_windows.single().cursor_position() {
+                if new_current != touch_state.current {
+                    touch_state.current = new_current;
                 }
             }
-            if joystick_state.touch_state.is_none() && mouse_buttons.just_pressed(MouseButton::Left)
-            {
-                if let Some(mouse_pos) = q_windows.single().cursor_position() {
-                    if rect.contains(mouse_pos) {
-                        joystick_state.touch_state = Some(TouchState {
-                            id: 0,
-                            is_mouse: true,
-                            start: mouse_pos,
-                            current: mouse_pos,
-                            just_pressed: true,
-                        });
-                    }
-                }
-            }
-        } else {
-            let mut clear_touch_state = false;
-            if let Some(touch_state) = &joystick_state.touch_state {
-                if touch_state.is_mouse {
-                    if mouse_buttons.just_released(MouseButton::Left) {
-                        clear_touch_state = true;
-                    }
-                } else if touches.just_released(touch_state.id) {
-                    clear_touch_state = true;
-                }
-            }
-            if clear_touch_state {
-                joystick_state.touch_state = None;
-                joystick_state.just_released = true;
-            } else if let Some(touch_state) = &mut joystick_state.touch_state {
-                if touch_state.is_mouse {
-                    if let Some(new_current) = q_windows.single().cursor_position() {
-                        if new_current != touch_state.current {
-                            touch_state.current = new_current;
-                        }
-                    }
-                } else if let Some(touch) = touches.get_pressed(touch_state.id) {
-                    let touch_position = touch.position();
-                    if touch_position != touch_state.current {
-                        touch_state.current = touch_position;
-                    }
-                }
+        } else if let Some(touch) = touches.get_pressed(touch_state.id) {
+            let touch_position = touch.position();
+            if touch_position != touch_state.current {
+                touch_state.current = touch_position;
             }
         }
     }

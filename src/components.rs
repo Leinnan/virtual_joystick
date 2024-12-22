@@ -57,6 +57,7 @@ impl<S: VirtualJoystickID> std::fmt::Debug for VirtualJoystickNode<S> {
 
 #[derive(Component, Clone, Debug, Default, Reflect)]
 #[reflect(Component, Default)]
+#[require(bevy::ui::Interaction)]
 pub struct VirtualJoystickState {
     pub touch_state: Option<TouchState>,
     pub just_released: bool,
